@@ -14,12 +14,12 @@ def check_consistency(state: PaperState) -> dict:
     """
     errors = []
 
-    methodology = state.get("methodology", "")
-    results = state.get("results", "")
+    methodology = state.get("methodology", "") or state.get("abstract", "")
+    results = state.get("results", "") or state.get("abstract", "")
 
     if not methodology and not results:
-        errors.append("ConsistencyAgent: both methodology and results are empty.")
-        return {"consistency_score": 0, "consistency_reasoning": "No content to evaluate.", "errors": errors}
+        errors.append("ConsistencyAgent: insufficient content (abstract-only paper).")
+        return {"consistency_score": 0, "consistency_reasoning": "Full paper text not available — HTML version not yet published on arXiv.", "errors": errors}
 
     # Truncate combined content to 12k tokens
     half = COMBINED_LIMIT // 2
@@ -47,8 +47,8 @@ Score guide: 90-100=fully supported, 70-89=mostly supported with minor gaps,
 
     try:
         response = call_llm(prompt, temperature=0.2)
-        response = re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip())
-        data = json.loads(response)
+        start, end = response.find('{'), response.rfind('}')
+        data = json.loads(response[start:end + 1])
         return {
             "consistency_score": int(data.get("score", 0)),
             "consistency_reasoning": data.get("reasoning", ""),

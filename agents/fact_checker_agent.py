@@ -12,10 +12,9 @@ def check_facts(state: PaperState) -> dict:
     """
     errors = []
 
-    # Use abstract + results as the fact-rich sections
     abstract = state.get("abstract", "")
     results = state.get("results", "")
-    combined = f"{abstract}\n\n{results}"
+    combined = f"{abstract}\n\n{results}" if results else abstract
     text_excerpt = truncate_to_limit(combined, max_tokens=6000)
 
     if not text_excerpt.strip():
@@ -44,8 +43,8 @@ Respond in this exact JSON format:
 
     try:
         response = call_llm(prompt, temperature=0.1)
-        response = re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip())
-        data = json.loads(response)
+        start, end = response.find('{'), response.rfind('}')
+        data = json.loads(response[start:end + 1])
         log = data.get("fact_check_log", [])
         # Normalize status values
         valid_statuses = {"verified", "unverified", "suspicious"}

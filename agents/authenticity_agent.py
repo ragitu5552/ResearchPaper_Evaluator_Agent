@@ -13,11 +13,11 @@ def check_authenticity(state: PaperState) -> dict:
     errors = []
 
     abstract = truncate_to_limit(state.get("abstract", ""), max_tokens=3000)
-    results = truncate_to_limit(state.get("results", ""), max_tokens=4000)
+    results = truncate_to_limit(state.get("results", "") or state.get("abstract", ""), max_tokens=4000)
 
     if not abstract and not results:
-        errors.append("AuthenticityAgent: abstract and results are empty.")
-        return {"authenticity_score": 50.0, "authenticity_reasoning": "No content to evaluate.", "errors": errors}
+        errors.append("AuthenticityAgent: insufficient content (abstract-only paper).")
+        return {"authenticity_score": 50.0, "authenticity_reasoning": "Full paper text not available — HTML version not yet published on arXiv.", "errors": errors}
 
     prompt = f"""You are an AI integrity auditor. Evaluate this research paper for signs of
 AI-generated content, fabricated results, or statistical anomalies.
@@ -42,8 +42,8 @@ Respond in this exact JSON format:
 
     try:
         response = call_llm(prompt, temperature=0.2)
-        response = re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip())
-        data = json.loads(response)
+        start, end = response.find('{'), response.rfind('}')
+        data = json.loads(response[start:end + 1])
         score = float(data.get("fabrication_probability", 50.0))
         score = max(0.0, min(100.0, score))  # clamp to valid range
         reasoning = data.get("reasoning", "")

@@ -13,11 +13,11 @@ def check_grammar(state: PaperState) -> dict:
     errors = []
 
     abstract = truncate_to_limit(state.get("abstract", ""), max_tokens=3000)
-    conclusion = truncate_to_limit(state.get("conclusion", ""), max_tokens=3000)
+    conclusion = truncate_to_limit(state.get("conclusion", "") or state.get("abstract", ""), max_tokens=3000)
 
     if not abstract and not conclusion:
-        errors.append("GrammarAgent: abstract and conclusion are empty.")
-        return {"grammar_rating": "Low", "grammar_reasoning": "No content to evaluate.", "errors": errors}
+        errors.append("GrammarAgent: insufficient content (abstract-only paper).")
+        return {"grammar_rating": "Low", "grammar_reasoning": "Full paper text not available — HTML version not yet published on arXiv.", "errors": errors}
 
     prompt = f"""You are an academic writing expert evaluating a research paper's language quality.
 
@@ -39,8 +39,8 @@ High = publication-ready, Medium = needs minor revision, Low = needs significant
 
     try:
         response = call_llm(prompt, temperature=0.2)
-        response = re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip())
-        data = json.loads(response)
+        start, end = response.find('{'), response.rfind('}')
+        data = json.loads(response[start:end + 1])
         rating = data.get("rating", "Medium")
         if rating not in ("High", "Medium", "Low"):
             rating = "Medium"

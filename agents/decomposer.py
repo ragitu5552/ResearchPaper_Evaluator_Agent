@@ -45,6 +45,15 @@ def _sections_are_valid(sections: dict) -> bool:
     return all(len(sections.get(k, "")) >= MIN_SECTION_CHARS for k in required)
 
 
+def _extract_json(text: str) -> dict:
+    """Robustly extract the first JSON object from LLM response."""
+    start = text.find('{')
+    end = text.rfind('}')
+    if start == -1 or end == -1:
+        return {}
+    return json.loads(text[start:end + 1])
+
+
 def _llm_split(text: str) -> dict:
     """Use LLM to extract sections when regex fails or yields thin results."""
     excerpt = truncate_to_limit(text, max_tokens=10000)
@@ -55,20 +64,19 @@ def _llm_split(text: str) -> dict:
 4. conclusion   (Conclusion / Summary / Future Work)
 
 Return ONLY a valid JSON object with keys: "abstract", "methodology", "results", "conclusion".
-Each value must contain the actual section text (not just the heading).
+Each value must contain the actual section text (not just the heading). Keep each under 800 words.
 If a section is missing, use an empty string.
 
 PAPER TEXT:
 {excerpt}
 
-Respond with valid JSON only. No markdown fences."""
+Respond with valid JSON only."""
 
     try:
         response = call_llm(prompt, temperature=0.1)
-        response = re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip())
-        return json.loads(response)
-    except Exception:
-        return {}
+        return _extract_json(response)
+    except Exception as e:
+        raise RuntimeError(f"LLM section extraction failed: {e}") from e
 
 
 def decompose_paper(state: PaperState) -> dict:
@@ -84,13 +92,30 @@ def decompose_paper(state: PaperState) -> dict:
         empty = {"abstract": "", "methodology": "", "results": "", "conclusion": ""}
         return {**empty, "full_sections": empty, "errors": errors}
 
+    # If text is too short to contain full sections, treat it as abstract-only
+    if len(raw_text) < MIN_SECTION_CHARS * 2:
+        abstract = truncate_to_limit(raw_text, max_tokens=15000)
+        full_sections = {"abstract": abstract, "methodology": "", "results": "", "conclusion": ""}
+        return {
+            "abstract": abstract,
+            "methodology": "",
+            "results": "",
+            "conclusion": "",
+            "full_sections": full_sections,
+            "errors": errors,
+        }
+
     # Try regex first
     sections = _regex_split(raw_text)
 
     # Fall back to LLM if regex didn't produce valid sections
     if not _sections_are_valid(sections):
-        errors.append("Decomposer: regex split insufficient, using LLM fallback.")
-        sections = _llm_split(raw_text)
+        try:
+            errors.append("Decomposer: regex split insufficient, using LLM fallback.")
+            sections = _llm_split(raw_text)
+        except RuntimeError as e:
+            errors.append(f"Decomposer: LLM fallback failed — {e}")
+            sections = {}
 
     # Truncate each section to token limit before storing
     abstract = truncate_to_limit(sections.get("abstract", ""), max_tokens=15000)

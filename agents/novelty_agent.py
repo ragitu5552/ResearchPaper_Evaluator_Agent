@@ -42,8 +42,8 @@ Respond in this exact JSON format:
 
     try:
         response = call_llm(prompt, temperature=0.2)
-        response = re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip())
-        data = json.loads(response)
+        start, end = response.find('{'), response.rfind('}')
+        data = json.loads(response[start:end + 1])
         valid_indices = ("Highly Novel", "Moderately Novel", "Incremental", "Unclear")
         novelty_index = data.get("novelty_index", "Unclear")
         if novelty_index not in valid_indices:
